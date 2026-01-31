@@ -1,31 +1,11 @@
-const nodemailer = require('nodemailer');
+const { Resend } = require('resend');
 const logger = require('../utils/logger');
 
 class EmailService {
   constructor() {
-    // Create reusable transporter
-    this.transporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST || 'smtp.gmail.com',
-      port: parseInt(process.env.SMTP_PORT) || 587,
-      secure: false, // true for 465, false for other ports
-      auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS,
-      },
-    });
-
-    // Verify connection on startup
-    this.verifyConnection();
-  }
-
-  async verifyConnection() {
-    try {
-      await this.transporter.verify();
-      logger.info('✅ Email service is ready to send emails');
-    } catch (error) {
-      logger.error('❌ Email service connection failed:', error.message);
-      logger.warn('Emails will be logged but not sent');
-    }
+    this.resend = new Resend(process.env.RESEND_API_KEY);
+    this.fromEmail = process.env.FROM_EMAIL || 'onboarding@resend.dev';
+    this.fromName = process.env.FROM_NAME || 'CRM Enterprise';
   }
 
   async sendInvitationEmail({ to, name, token }) {
@@ -33,9 +13,9 @@ class EmailService {
       const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
       const invitationLink = `${frontendUrl}/accept-invitation?token=${token}`;
       
-      const mailOptions = {
-        from: `"${process.env.FROM_NAME || 'CRM Enterprise'}" <${process.env.FROM_EMAIL}>`,
-        to,
+      const { data, error } = await this.resend.emails.send({
+        from: `"${this.fromName}" <${this.fromEmail}>`,
+        to: [to],
         subject: 'You have been invited to join the team!',
         html: `
           <!DOCTYPE html>
@@ -73,44 +53,39 @@ class EmailService {
           </body>
           </html>
         `,
-        text: `
-Hi ${name},
+      });
 
-You have been invited to join our CRM platform.
+      if (error) {
+        logger.error('Resend invitation email error:', error);
+        
+        logger.warn('='.repeat(60));
+        logger.warn('⚠️ EMAIL NOT SENT - Resend API Error');
+        logger.warn('='.repeat(60));
+        logger.warn(`To: ${to}`);
+        logger.warn(`Error: ${JSON.stringify(error)}`);
+        logger.warn(`Invitation Link: ${invitationLink}`);
+        logger.warn('='.repeat(60));
+        
+        return { success: false, error };
+      }
 
-Click this link to accept your invitation:
-${invitationLink}
-
-This invitation will expire in 7 days.
-
-If you didn't expect this invitation, you can safely ignore this email.
-
-© ${new Date().getFullYear()} CRM Enterprise. All rights reserved.
-        `.trim(),
-      };
-
-      // Try to send email
-      const info = await this.transporter.sendMail(mailOptions);
-      
       logger.info('='.repeat(60));
-      logger.info('📧 INVITATION EMAIL SENT');
+      logger.info('📧 INVITATION EMAIL SENT via Resend');
       logger.info('='.repeat(60));
       logger.info(`To: ${to}`);
       logger.info(`Name: ${name}`);
-      logger.info(`Message ID: ${info.messageId}`);
-      logger.info(`Status: ${info.response}`);
+      logger.info(`Email ID: ${data.id}`);
       logger.info('='.repeat(60));
 
-      return { success: true, messageId: info.messageId };
+      return { success: true, messageId: data.id };
     } catch (error) {
       logger.error('Send invitation email error:', error);
       
-      // Fallback: Log the invitation link
       const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
       const invitationLink = `${frontendUrl}/accept-invitation?token=${token}`;
       
       logger.warn('='.repeat(60));
-      logger.warn('⚠️ EMAIL NOT SENT - Using fallback logging');
+      logger.warn('⚠️ EMAIL NOT SENT - Exception caught');
       logger.warn('='.repeat(60));
       logger.warn(`To: ${to}`);
       logger.warn(`Invitation Link: ${invitationLink}`);
@@ -125,9 +100,9 @@ If you didn't expect this invitation, you can safely ignore this email.
       const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
       const resetLink = `${frontendUrl}/reset-password?token=${token}`;
       
-      const mailOptions = {
-        from: `"${process.env.FROM_NAME || 'CRM Enterprise'}" <${process.env.FROM_EMAIL}>`,
-        to,
+      const { data, error } = await this.resend.emails.send({
+        from: `"${this.fromName}" <${this.fromEmail}>`,
+        to: [to],
         subject: 'Password Reset Request',
         html: `
           <!DOCTYPE html>
@@ -165,11 +140,15 @@ If you didn't expect this invitation, you can safely ignore this email.
           </body>
           </html>
         `,
-      };
+      });
 
-      const info = await this.transporter.sendMail(mailOptions);
-      logger.info(`Password reset email sent to ${to} - Message ID: ${info.messageId}`);
-      return { success: true, messageId: info.messageId };
+      if (error) {
+        logger.error('Resend password reset email error:', error);
+        return { success: false, error };
+      }
+
+      logger.info(`✅ Password reset email sent to ${to} - Email ID: ${data.id}`);
+      return { success: true, messageId: data.id };
     } catch (error) {
       logger.error('Send password reset email error:', error);
       return { success: false, error: error.message };
@@ -178,9 +157,9 @@ If you didn't expect this invitation, you can safely ignore this email.
 
   async sendWelcomeEmail({ to, name }) {
     try {
-      const mailOptions = {
-        from: `"${process.env.FROM_NAME || 'CRM Enterprise'}" <${process.env.FROM_EMAIL}>`,
-        to,
+      const { data, error } = await this.resend.emails.send({
+        from: `"${this.fromName}" <${this.fromEmail}>`,
+        to: [to],
         subject: 'Welcome to CRM Enterprise!',
         html: `
           <!DOCTYPE html>
@@ -212,11 +191,15 @@ If you didn't expect this invitation, you can safely ignore this email.
           </body>
           </html>
         `,
-      };
+      });
 
-      const info = await this.transporter.sendMail(mailOptions);
-      logger.info(`Welcome email sent to ${to} - Message ID: ${info.messageId}`);
-      return { success: true, messageId: info.messageId };
+      if (error) {
+        logger.error('Resend welcome email error:', error);
+        return { success: false, error };
+      }
+
+      logger.info(`✅ Welcome email sent to ${to} - Email ID: ${data.id}`);
+      return { success: true, messageId: data.id };
     } catch (error) {
       logger.error('Send welcome email error:', error);
       return { success: false, error: error.message };
