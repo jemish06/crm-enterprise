@@ -185,17 +185,41 @@ leadSchema.virtual('tasks', {
 });
 
 // Pre-save middleware to generate lead number
+// Pre-save middleware to generate lead number
 leadSchema.pre('save', async function () {
   if (this.isNew && !this.leadNumber) {
     try {
-      const count = await this.constructor.countDocuments({ tenantId: this.tenantId });
       const year = new Date().getFullYear();
-      this.leadNumber = `LEAD-${year}-${String(count + 1).padStart(6, '0')}`;
+      
+      // Find the last lead number for this tenant in current year
+      const lastLead = await this.constructor
+        .findOne({ 
+          tenantId: this.tenantId,
+          leadNumber: new RegExp(`^LEAD-${year}-`)
+        })
+        .sort({ leadNumber: -1 })
+        .select('leadNumber')
+        .lean();
+      
+      let nextNumber = 1;
+      
+      if (lastLead && lastLead.leadNumber) {
+        // Extract number from LEAD-2026-000123 -> 123
+        const lastNumber = parseInt(lastLead.leadNumber.split('-')[2]);
+        nextNumber = lastNumber + 1;
+      }
+      
+      // Pad with zeros: 1 -> 000001
+      this.leadNumber = `LEAD-${year}-${String(nextNumber).padStart(6, '0')}`;
+      
+      
     } catch (error) {
-      return next(error);
+      next(error);
     }
+  } else {
+    
   }
-  
 });
+
 
 module.exports = mongoose.model('Lead', leadSchema);
