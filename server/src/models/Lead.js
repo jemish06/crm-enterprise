@@ -9,10 +9,9 @@ const leadSchema = new mongoose.Schema(
       index: true,
     },
     leadNumber: {
-      type: String,
-      unique: true,
-      sparse: true, // Allow multiple nulls during creation
-    },
+  type: String,
+  index: true,
+},
     firstName: {
       type: String,
       required: [true, 'First name is required'],
@@ -186,40 +185,22 @@ leadSchema.virtual('tasks', {
 
 // Pre-save middleware to generate lead number
 // Pre-save middleware to generate lead number
+const Counter = require('./Counter');
+
 leadSchema.pre('save', async function () {
-  if (this.isNew && !this.leadNumber) {
-    try {
-      const year = new Date().getFullYear();
-      
-      // Find the last lead number for this tenant in current year
-      const lastLead = await this.constructor
-        .findOne({ 
-          tenantId: this.tenantId,
-          leadNumber: new RegExp(`^LEAD-${year}-`)
-        })
-        .sort({ leadNumber: -1 })
-        .select('leadNumber')
-        .lean();
-      
-      let nextNumber = 1;
-      
-      if (lastLead && lastLead.leadNumber) {
-        // Extract number from LEAD-2026-000123 -> 123
-        const lastNumber = parseInt(lastLead.leadNumber.split('-')[2]);
-        nextNumber = lastNumber + 1;
-      }
-      
-      // Pad with zeros: 1 -> 000001
-      this.leadNumber = `LEAD-${year}-${String(nextNumber).padStart(6, '0')}`;
-      
-      
-    } catch (error) {
-      next(error);
-    }
-  } else {
-    
-  }
+  if (!this.isNew || this.leadNumber) return;
+
+  const year = new Date().getFullYear();
+
+  const counter = await Counter.findOneAndUpdate(
+    { tenantId: this.tenantId, year },
+    { $inc: { seq: 1 } },
+    { new: true, upsert: true }
+  );
+
+  this.leadNumber = `LEAD-${year}-${String(counter.seq).padStart(6, '0')}`;
 });
+
 
 
 module.exports = mongoose.model('Lead', leadSchema);
