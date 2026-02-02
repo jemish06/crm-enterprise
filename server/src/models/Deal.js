@@ -11,7 +11,6 @@ const dealSchema = new mongoose.Schema(
     dealNumber: {
       type: String,
       unique: true,
-      sparse: true,
     },
     name: {
       type: String,
@@ -147,23 +146,27 @@ dealSchema.virtual('weightedValue').get(function () {
 });
 
 // Pre-save: generate deal number
+const Counter = require('./Counter');
+
 dealSchema.pre('save', async function () {
   if (this.isNew && !this.dealNumber) {
-    try {
-      const count = await this.constructor.countDocuments({ tenantId: this.tenantId });
-      const year = new Date().getFullYear();
-      this.dealNumber = `DEAL-${year}-${String(count + 1).padStart(6, '0')}`;
-    } catch (error) {
-      return next(error);
-    }
+    const year = new Date().getFullYear();
+
+    const counter = await Counter.findOneAndUpdate(
+      { tenantId: this.tenantId, entity: 'deal', year },
+      { $inc: { seq: 1 } },
+      { new: true, upsert: true }
+    );
+
+    this.dealNumber = `DEAL-${year}-${String(counter.seq).padStart(6, '0')}`;
   }
-  
-  // Set close date when won/lost
-  if (this.isModified('stage') && ['closed-won', 'closed-lost'].includes(this.stage)) {
+
+  if (
+    this.isModified('stage') &&
+    ['closed-won', 'closed-lost'].includes(this.stage)
+  ) {
     this.actualCloseDate = new Date();
   }
-  
-
 });
 
 module.exports = mongoose.model('Deal', dealSchema);

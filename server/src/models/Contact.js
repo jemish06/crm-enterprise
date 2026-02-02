@@ -11,7 +11,6 @@ const contactSchema = new mongoose.Schema(
     contactNumber: {
       type: String,
       unique: true,
-      sparse: true,
     },
     firstName: {
       type: String,
@@ -138,17 +137,21 @@ contactSchema.virtual('fullName').get(function () {
 });
 
 // Pre-save: generate contact number
+const Counter = require('./Counter');
+
 contactSchema.pre('save', async function () {
-  if (this.isNew && !this.contactNumber) {
-    try {
-      const count = await this.constructor.countDocuments({ tenantId: this.tenantId });
-      const year = new Date().getFullYear();
-      this.contactNumber = `CONT-${year}-${String(count + 1).padStart(6, '0')}`;
-    } catch (error) {
-      return next(error);
-    }
-  }
-  
+  if (!this.isNew || this.contactNumber) return;
+
+  const year = new Date().getFullYear();
+
+  const counter = await Counter.findOneAndUpdate(
+    { tenantId: this.tenantId, entity: 'contact', year },
+    { $inc: { seq: 1 } },
+    { new: true, upsert: true }
+  );
+
+  this.contactNumber = `CONT-${year}-${String(counter.seq).padStart(6, '0')}`;
 });
+
 
 module.exports = mongoose.model('Contact', contactSchema);
